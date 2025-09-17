@@ -1,0 +1,118 @@
+const mapaBalancas = {
+    "displayMensagem_100000097913101": "bal1",
+    "displayMensagem_100000098313101": "bal2",
+    "displayMensagem_100000098513101": "bal90",
+    "displayMensagem_100000098013101": "bal100",
+    "displayMensagem_100000098413101": "bal5",
+    "displayMensagem_100000098613101": "bal3",
+    "displayMensagem_100000098713101": "bal6",
+    "displayMensagem_100000098813101": "bal7",
+    "displayMensagem_100000098913101": "bal8"
+};
+
+const tempoNegativo = {};
+const alertasAtivos = {};
+const intervalosAtivos = {};
+let alertaAtual = null;
+
+function tocarAlerta(tipo, nomeBalanca, intervaloMs) {
+    const chave = `${tipo}_${nomeBalanca}`;
+    if (alertaAtual && alertaAtual !== chave) return;
+    if (alertasAtivos[chave]) return;
+
+    const audio = new Audio(chrome.runtime.getURL(`${tipo}${nomeBalanca}.mp3`));
+    audio.play().catch(console.error);
+
+    alertasAtivos[chave] = audio;
+    alertaAtual = chave;
+
+    const intervaloId = setInterval(() => {
+        audio.play().catch(console.error);
+    }, intervaloMs);
+
+    intervalosAtivos[chave] = intervaloId;
+}
+
+function pararAlerta(tipo, nomeBalanca) {
+    const chave = `${tipo}_${nomeBalanca}`;
+    if (alertasAtivos[chave]) {
+        alertasAtivos[chave].pause();
+        alertasAtivos[chave].currentTime = 0;
+        delete alertasAtivos[chave];
+    }
+    if (intervalosAtivos[chave]) {
+        clearInterval(intervalosAtivos[chave]);
+        delete intervalosAtivos[chave];
+    }
+    if (alertaAtual === chave) {
+        alertaAtual = null;
+    }
+}
+
+function verificarBalancas() {
+    Object.keys(mapaBalancas).forEach((idMensagem) => {
+        const elemento = document.getElementById(idMensagem);
+        if (!elemento) return;
+
+        const texto = elemento.innerText;
+        const nomeBalanca = mapaBalancas[idMensagem];
+
+        if (texto.includes("ERRO OCR") || texto.includes("ERRO VALIDACAO OCR")) {
+            tocarAlerta("ocr", nomeBalanca, 20000);
+        } else {
+            pararAlerta("ocr", nomeBalanca);
+        }
+
+        if (texto.includes("ERRO NA CAMERA")) {
+            tocarAlerta("errocamera", nomeBalanca, 20000);
+        } else {
+            pararAlerta("errocamera", nomeBalanca);
+        }
+
+        if (texto.includes("CARTÃO NÃO VINCULADO") || texto.includes("CARTAO NAO VINCULADO") ||
+            texto.includes("CARTÃO NÃO REGISTRADO") || texto.includes("CARTAO NAO REGISTRADO")) {
+            tocarAlerta("vinculado", nomeBalanca, 3 * 60 * 1000);
+        } else {
+            pararAlerta("vinculado", nomeBalanca);
+        }
+
+        if (texto.includes("PESO NEGATIVO")) {
+            if (!tempoNegativo[idMensagem]) {
+                tempoNegativo[idMensagem] = Date.now();
+            } else {
+                const tempoDecorrido = Date.now() - tempoNegativo[idMensagem];
+                if (tempoDecorrido >= 60 * 1000) {
+                    tocarAlerta("negativo", nomeBalanca, 5 * 60 * 1000);
+                }
+            }
+        } else {
+            tempoNegativo[idMensagem] = null;
+            pararAlerta("negativo", nomeBalanca);
+        }
+    });
+}
+
+window.addEventListener("load", () => {
+    setTimeout(() => {
+        verificarBalancas();
+    }, 1500);
+});
+
+const observer = new MutationObserver(() => {
+    verificarBalancas();
+});
+
+Object.keys(mapaBalancas).forEach((idMensagem) => {
+    const elemento = document.getElementById(idMensagem);
+    if (elemento) {
+        observer.observe(elemento, {
+            childList: true,
+            subtree: true,
+            characterData: true
+        });
+    }
+});
+
+setInterval(() => {
+    verificarBalancas();
+}, 5000);
